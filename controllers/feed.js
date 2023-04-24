@@ -31,7 +31,8 @@ exports.postPost = (req, res, next) => {
     throw error;
   }
 
-  const imagePath = `/${req.file.path}`;
+  //remove \\ from url in db
+  const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
 
   const title = req.body.title;
   const content = req.body.content;

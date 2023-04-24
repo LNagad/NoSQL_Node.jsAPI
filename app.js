@@ -4,27 +4,20 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const multer = require("multer");
-
-const feedRoutes = require("./routes/feed");
-
-const app = express();
+const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
-
 const dir = "./images";
 
 if (!fs.existsSync(dir)) {
   fs.mkdirSync(dir);
 }
 
-const fileStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "images");
-  },
-  filename: (req, file, cb) => {
-    cb(null, new Date().toISOString() + "-" + file.originalname);
-  },
-  createDestPath: true, // Agregar esta opción para crear la ruta de destino si aún no existe
-});
+const feedRoutes = require("./routes/feed");
+
+const app = express();
+
+// ? Basically this parse incoming data to json
+app.use(bodyParser.json()); // application/json
 
 const fileFilter = (req, file, cb) => {
   if (
@@ -38,12 +31,18 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// ? Basically this parse incoming data to json
-app.use(bodyParser.json()); // application/json
+const fileStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "images");
+  },
+  filename: (req, file, cb) => {
+    cb(null, uuidv4() + "-" + file.originalname);
+  },
+});
 
-app.use(multer({ storage: fileStorage }).single("image"));
-
-app.use("/images", express.static(path.join(__dirname, "images")));
+app.use(
+  multer({ storage: fileStorage, fileFilter: fileFilter }).single("image")
+);
 
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -54,6 +53,8 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   next();
 });
+
+app.use("/images", express.static(path.join(__dirname, "images")));
 
 app.use("/feed", feedRoutes);
 
