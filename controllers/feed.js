@@ -1,85 +1,250 @@
 const { validationResult } = require("express-validator");
+const mongoose = require("mongoose");
 const Post = require("../models/post");
+const { clearImage } = require("../util/clearImage");
+const User = require("../models/user");
+const user = require("../models/user");
 
-exports.getPosts = (req, res, next) => {
-  Post.find()
-    .then((posts) => {
-      res
-        .status(200)
-        .json({ message: "Fetched posts succesfully.", posts: posts });
-    })
-    .catch((err) => {
-      if (!err.statusCode) {
-        err.statusCode = 500;
-      }
-      next(err);
+exports.getPosts = async (req, res, next) => {
+  const currentPage = req.query.page || 1;
+
+  const perPage = 2;
+
+  let totalItems;
+
+  try {
+    const count = await Post.find({ creator: req.userId }).countDocuments();
+
+    if (count <= 0) {
+      const error = new Error("Could not find posts.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const posts = await Post.find({ creator: req.userId })
+      .skip((currentPage - 1) * perPage)
+      .limit(perPage);
+
+    totalItems = count;
+
+    res.status(200).json({
+      message: "Fetched posts succesfully.",
+      posts,
+      totalItems,
     });
+  } catch (err) {
+    if (!err.statusCode) {
+      err.statusCode = 500;
+    }
+    next(err);
+  }
 };
 
-exports.postPost = (req, res, next) => {
+exports.createPost = async (req, res, next) => {
   const errors = validationResult(req);
+  try {
+    if (!errors.isEmpty()) {
+      const error = new Error("Validation failed, entered data is incorrect.");
+      error.statusCode = 422;
+      error.data = errors.array();
 
-  if (!errors.isEmpty()) {
-    const error = new Error("Validation failed, entered data is incorrect.");
-    error.statusCode = 422;
-    throw error;
-  }
-
-  if (!req.file) {
-    const error = new Error("No image provided.");
-    error.statusCode = 422;
-    throw error;
-  }
-
-  //remove \\ from url in db
-  const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
-
-  const title = req.body.title;
-  const content = req.body.content;
-
-  const post = new Post({
-    title,
-    content,
-    imageUrl: imagePath,
-    creator: { name: "Maycol" },
-  });
-
-  post
-    .save()
-    .then((result) => {
-      res.status(201).json({
-        message: "Post created sucesfully",
-        post: result,
-      });
-    })
-    .catch((err) => {
-      if (!err.statusCode) {
-        err.statusCode = 500;
+      if (req.file) {
+        clearImage(req.file.path);
       }
-      next(err);
+      throw error;
+    }
+
+    if (!req.file) {
+      const error = new Error("No image provided.");
+      error.statusCode = 422;
+      throw error;
+    }
+
+    //remove \\ from url in db
+    const imagePath = `/${req.file.path.replace(/\\/g, "/")}`;
+
+    const title = req.body.title;
+    const content = req.body.content;
+
+    const post = new Post({
+      title,
+      content,
+      imageUrl: imagePath,
+      creator: req.userId,
     });
+
+    const creator = await User.findById(req.userId);
+
+    if (!creator) {
+      const error = new Error("Could not find user logged in.");
+      error.statusCode = 404;
+
+      if (req.file) {
+        clearImage(req.file.path);
+      }
+      throw error;
+    }
+
+    const result = await post.save();
+
+    creator.posts.push(post);
+
+    await creator.save();
+
+    res.status(201).json({
+      message: "Post created sucesfully",
+      post: result,
+      creator: { _id: creator._id, name: creator.name },
+    });
+  } catch (err) {
+    if (!err.statusCode) {
+      err.statusCode = 500;
+    }
+    next(err);
+  }
 };
 
-exports.getPost = (req, res, next) => {
+exports.getPost = async (req, res, next) => {
   const postId = req.params.postId;
 
-  Post.findById(postId)
-    .then((post) => {
-      if (!post) {
-        const error = new Error("Could not find post.");
-        error.statusCode = 404;
-        throw error;
-      }
+  try {
+    const post = await Post.findById(postId)
+      .where("_id")
+      .equals(postId)
+      .where("creator")
+      .equals(req.userId);
 
-      res.status(200).json({
-        message: "Post fetched.",
-        post,
-      });
-    })
-    .catch((err) => {
-      if (!err.statusCode) {
-        err.statusCode = 500;
-      }
-      next(err);
+    if (!post) {
+      const error = new Error("Could not find post.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    res.status(200).json({
+      message: "Post fetched.",
+      post,
     });
+  } catch (err) {
+    if (!err.statusCode) {
+      err.statusCode = 500;
+    }
+    next(err);
+  }
+};
+
+exports.updatePost = async (req, res, next) => {
+  const postId = req.params.postId;
+
+  const errors = validationResult(req);
+
+  try {
+    if (!errors.isEmpty()) {
+      const error = new Error("Validation failed, entered data is incorrect.");
+      error.statusCode = 422;
+
+      if (req.file) {
+        clearImage(req.file.path);
+      }
+      throw error;
+    }
+
+    const title = req.body.title;
+    const content = req.body.content;
+    let imageUrl = req.body.image;
+
+    if (req.file) {
+      imageUrl = `/${req.file.path.replace(/\\/g, "/")}`;
+    }
+
+    if (!imageUrl) {
+      const error = new Error("No file picked.");
+      error.statusCode = 422;
+      throw error;
+    }
+
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      const error = new Error("Could not find post.");
+      error.statusCode = 404;
+
+      if (req.file) {
+        clearImage(req.file.path);
+      }
+      throw error;
+    }
+
+    if (post.creator.toString() !== req.userId) {
+      const error = new Error("Not authorized!");
+      error.statusCode = 403;
+
+      if (req.file) {
+        clearImage(req.file.path);
+      }
+      throw error;
+    }
+
+    if (imageUrl !== post.imageUrl) {
+      clearImage(post.imageUrl);
+    }
+
+    post.title = title;
+    post.imageUrl = imageUrl;
+    post.content = content;
+
+    const result = await post.save();
+
+    res.status(200).json({ message: "Post updated!", post: result });
+  } catch (err) {
+    if (!err.statusCode) {
+      err.statusCode = 500;
+    }
+    next(err);
+  }
+};
+
+exports.deletePost = async (req, res, next) => {
+  const postId = req.params.postId;
+  try {
+    const post = await Post.findById(postId);
+
+    if (!post) {
+      const error = new Error("Could not find post.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (post.creator.toString() !== req.userId) {
+      const error = new Error("Not authorized!");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    if (post.imageUrl) {
+      clearImage(post.imageUrl);
+    }
+
+    const result = await Post.findOneAndDelete({ _id: postId });
+
+    if (!result) {
+      const error = new Error("Failed removing post.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    //Deleting the post from the user post collection
+    const user = await User.findById(req.userId);
+
+    user.posts.pull(postId);
+
+    await user.save();
+
+    res.status(200).json({ message: "Deleted post." });
+  } catch (err) {
+    if (!err.statusCode) {
+      err.statusCode = 500;
+    }
+
+    next(err);
+  }
 };
