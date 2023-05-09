@@ -1,11 +1,12 @@
 # NodeAPI
 
-This is a project for a REST API created with Node.js, using JWToken for authentication and error handling middleware for various scenarios, with the goal of communicating with a frontend client.
+This is a project for a REST API created with Node.js, using JWToken for authentication, error handling middleware for various scenarios, and WebSocket for realtime events.
 
 ## Features
 
 - Implementation of a REST API with Node.js
 - Authentication using JWToken
+- RealTime responses back to the client when manipulating the db
 - Error handling middleware for various scenarios
 - Communication with a frontend client
 
@@ -19,7 +20,6 @@ Before running the project, make sure you have the following components installe
 ## Installation
 
 1. Clone this repository to your local machine.
-git clone https://github.com/your_username/nodeApi.git
 2. Navigate to the project folder.
 cd nodeApi
 
