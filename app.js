@@ -6,7 +6,7 @@ const mongoose = require("mongoose");
 const multer = require("multer");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
-const dir = "./images";
+const dir = "/images";
 
 if (!fs.existsSync(dir)) {
   fs.mkdirSync(dir);
@@ -79,8 +79,13 @@ const DB_URL = process.env.DB_URL;
 mongoose
   .connect(DB_URL)
   .then((result) => {
-    app.listen(PORT, () => {
-      console.log(`App is running on http://localhost:${PORT}/`);
+    const httpServer = app.listen(PORT);
+    console.log(`App is running on http://localhost:${PORT}/`);
+
+    const io = require("./socket").init(httpServer);
+
+    io.on("connection", (socket) => {
+      console.log("Client connected");
     });
   })
   .catch((err) => console.log(err));

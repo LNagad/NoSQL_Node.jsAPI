@@ -4,6 +4,7 @@ const Post = require("../models/post");
 const { clearImage } = require("../util/clearImage");
 const User = require("../models/user");
 const user = require("../models/user");
+const io = require("../socket");
 
 exports.getPosts = async (req, res, next) => {
   const currentPage = req.query.page || 1;
@@ -13,7 +14,8 @@ exports.getPosts = async (req, res, next) => {
   let totalItems;
 
   try {
-    const count = await Post.find({ creator: req.userId }).countDocuments();
+    // const count = await Post.find({ creator: req.userId }).countDocuments();
+    const count = await Post.find().countDocuments();
 
     if (count <= 0) {
       const error = new Error("Could not find posts.");
@@ -21,7 +23,9 @@ exports.getPosts = async (req, res, next) => {
       throw error;
     }
 
-    const posts = await Post.find({ creator: req.userId })
+    const posts = await Post.find()
+      .populate("creator")
+      .sort({ createdAt: -1 })
       .skip((currentPage - 1) * perPage)
       .limit(perPage);
 
@@ -90,6 +94,17 @@ exports.createPost = async (req, res, next) => {
     creator.posts.push(post);
 
     await creator.save();
+
+    io.getIO().emit("posts", {
+      action: "create",
+      post: {
+        ...post._doc,
+        creator: {
+          _id: req.userId,
+          name: creator.name,
+        },
+      },
+    });
 
     res.status(201).json({
       message: "Post created sucesfully",
@@ -162,7 +177,7 @@ exports.updatePost = async (req, res, next) => {
       throw error;
     }
 
-    const post = await Post.findById(postId);
+    const post = await Post.findById(postId).populate("creator");
 
     if (!post) {
       const error = new Error("Could not find post.");
@@ -174,7 +189,7 @@ exports.updatePost = async (req, res, next) => {
       throw error;
     }
 
-    if (post.creator.toString() !== req.userId) {
+    if (post.creator._id.toString() !== req.userId) {
       const error = new Error("Not authorized!");
       error.statusCode = 403;
 
@@ -184,15 +199,22 @@ exports.updatePost = async (req, res, next) => {
       throw error;
     }
 
-    if (imageUrl !== post.imageUrl) {
-      clearImage(post.imageUrl);
+    if (imageUrl) {
+      if (imageUrl !== post.imageUrl) {
+        clearImage(post.imageUrl);
+      }
     }
 
     post.title = title;
-    post.imageUrl = imageUrl;
+    post.imageUrl = imageUrl ?? post.imageUrl;
     post.content = content;
 
     const result = await post.save();
+
+    io.getIO().emit("posts", {
+      action: "update",
+      post: result,
+    });
 
     res.status(200).json({ message: "Post updated!", post: result });
   } catch (err) {
@@ -238,6 +260,11 @@ exports.deletePost = async (req, res, next) => {
     user.posts.pull(postId);
 
     await user.save();
+
+    io.getIO().emit("posts", {
+      action: "delete",
+      post: postId,
+    });
 
     res.status(200).json({ message: "Deleted post." });
   } catch (err) {
